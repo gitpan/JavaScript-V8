@@ -1,0 +1,14 @@
+%module{JavaScript::V8};
+
+%name{JavaScript::V8::Context} class V8Context
+{
+  V8Context();
+
+  ~V8Context();
+
+  SV* eval(const char* code);
+  void bind_function(const char* name,SV* code);
+
+};
+
+

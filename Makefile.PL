@@ -1,0 +1,25 @@
+use 5.006001;
+use ExtUtils::MakeMaker;
+# See lib/ExtUtils/MakeMaker.pm for details of how to influence
+# the contents of the Makefile that is written.
+
+my $CC = 'g++';
+
+WriteMakefile(
+    NAME              => 'JavaScript::V8',
+    VERSION_FROM      => 'lib/JavaScript/V8.pm', # finds $VERSION
+    PREREQ_PM         => {
+      'ExtUtils::XSpp' => '0.01',
+    }, # e.g., Module::Name => 1.1
+    ABSTRACT_FROM  => 'lib/JavaScript/V8.pm', # retrieve abstract from module
+    AUTHOR         => 'Pawel Murias <pawelmurias@gmail.org>',
+    LIBS              => ['-lv8'], # e.g., '-lm'
+    DEFINE            => '', # e.g., '-DHAVE_SOMETHING'
+    INC               => '-I.', # e.g., '-I. -I/usr/include/other'
+    OBJECT            => '$(O_FILES)', # link all the C files too
+    XSOPT             => '-C++ -hiertype',
+    TYPEMAPS          => ['perlobject.map'],
+    CC                => $CC,
+    LD                => '$(CC)',
+);
+
