@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               JavaScript-V8
-version:            0.01
+version:            0.02
 abstract:           Perl interface to the V8
 author:
     - Pawel Murias <pawelmurias@gmail.org>

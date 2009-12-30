@@ -9,6 +9,8 @@ README
 t/01load.t
 t/basic.t
 t/bind_function.t
+t/error.t
+t/refcnt.t
 typemap
 typemap.xsp
 V8Context.cpp
