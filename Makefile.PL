@@ -1,15 +1,17 @@
-use 5.006001;
+use 5.008;
 use ExtUtils::MakeMaker;
-# See lib/ExtUtils/MakeMaker.pm for details of how to influence
-# the contents of the Makefile that is written.
+
+use lib qw(inc);
+use Devel::CheckLib;
+
+check_lib_or_exit(lib => ['v8']);
 
 my $CC = 'g++';
-
-WriteMakefile(
+my %mm = (
     NAME              => 'JavaScript::V8',
     VERSION_FROM      => 'lib/JavaScript/V8.pm', # finds $VERSION
     PREREQ_PM         => {
-      'ExtUtils::XSpp' => '0.01',
+      'ExtUtils::XSpp' => '0.11',
     }, # e.g., Module::Name => 1.1
     ABSTRACT_FROM  => 'lib/JavaScript/V8.pm', # retrieve abstract from module
     AUTHOR         => 'Pawel Murias <pawelmurias@gmail.org>',
@@ -23,3 +25,12 @@ WriteMakefile(
     LD                => '$(CC)',
 );
 
+if(ExtUtils::MakeMaker->can("VERSION") && ExtUtils::MakeMaker->VERSION(6.46)) {
+  $mm{META_MERGE} = {
+    resources        => {
+      repository     => 'http://github.com/dgl/javascript-v8',
+    }
+  };
+}
+
+WriteMakefile(%mm);

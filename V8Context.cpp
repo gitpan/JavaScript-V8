@@ -22,6 +22,35 @@ static SV *_convert_v8value_to_sv(Handle<Value> value)
         SV *sv = newSVpv(*(String::Utf8Value(value)), 0);
         sv_utf8_decode(sv);
         return sv;
+    } else if (value->IsArray()) {
+        Handle<Array> arrayVal = Handle<Array>::Cast( value );
+        AV *av = newAV();
+        for (int i = 0; i < arrayVal->Length(); i++) {
+            Handle<Value> elementVal = arrayVal->Get( v8::Integer::New( i ) );
+            if ( elementVal->IsArray() || elementVal->IsObject() ) {
+                av_push( av, newRV_noinc( _convert_v8value_to_sv( elementVal ) ) );
+            } else {
+                av_push( av, _convert_v8value_to_sv( elementVal ) );
+            }
+        }
+        return (SV *) av;
+    } else if (value->IsObject()) {
+        Handle<Object> objectVal = Handle<Object>::Cast( value );
+        HV *hv = newHV();
+        Local<Array> properties = objectVal->GetPropertyNames();
+        for (int i = 0; i < properties->Length(); i++) {
+            Local<Integer> propertyIndex = Integer::New( i );
+            Local<String> propertyName = Local<String>::Cast( properties->Get( propertyIndex ) );
+            String::Utf8Value propertyNameUTF8( propertyName );
+
+            Local<Value> propertyValue = objectVal->Get( propertyName );
+            if ( propertyValue->IsArray() || propertyValue->IsObject() ) {
+                hv_store(hv, *propertyNameUTF8, 0 - propertyNameUTF8.length(), newRV_noinc(_convert_v8value_to_sv( propertyValue ) ), 0 );
+            } else {
+                hv_store(hv, *propertyNameUTF8, 0 - propertyNameUTF8.length(), _convert_v8value_to_sv( propertyValue ), 0 );
+            }
+        }
+        return (SV *) hv;
     } else {
         croak("Can not convert js value to a perl one");
         return &PL_sv_undef;
@@ -57,14 +86,15 @@ _perl_method(const Arguments &args)
     PUSHMARK(SP);
   
     for (int i = 0; i < args.Length(); i ++) {
-        //TODO think about refcounts
+        /* TODO think about refcounts */
         XPUSHs(_convert_v8value_to_sv(args[i]));
     }
   
   
     PUTBACK;
   
-    count = call_sv(INT2PTR(SV*,args.Data()->Int32Value()),G_SCALAR);
+    SV *code = (SV *) External::Unwrap(args.Data());
+    count = call_sv(code, G_SCALAR);
   
     SPAGAIN;
    
@@ -96,22 +126,29 @@ V8Context::bind_function(const char *name,SV* code)
     context->Global()->Set(
         String::New(name),
         FunctionTemplate::New(_perl_method,
-                              Integer::New(PTR2IV(code)))->GetFunction()
+                              External::Wrap((void *) code))->GetFunction()
     );
 }
 SV* V8Context::eval(const char* source) {
     HandleScope handle_scope;
     Context::Scope context_scope(context);
-    Handle<Script> script = Script::Compile(String::New(source));
     TryCatch try_catch;
+    Handle<Script> script = Script::Compile(String::New(source));
+    if(script.IsEmpty()) {
+        String::Utf8Value error(try_catch.Exception());
+        sv_setsv(ERRSV, sv_2mortal(newSVpvn(*error, error.length())));
+        return &PL_sv_undef;
+    }
+
     Handle<Value> val = script->Run();
     if (val.IsEmpty()) {
         Handle<Value> exception = try_catch.Exception();
         String::AsciiValue exception_str(exception);
-        sv_setpv(ERRSV,*exception_str);
+
+        sv_setsv(ERRSV, sv_2mortal(newSVpvn(*exception_str, exception_str.length())));
         return &PL_sv_undef;
     } else {
-        sv_setsv(ERRSV,&PL_sv_undef);
+        sv_setsv(ERRSV, &PL_sv_undef);
         return _convert_v8value_to_sv(val);
     }
 }

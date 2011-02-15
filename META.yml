@@ -1,7 +1,7 @@
 --- #YAML:1.0
 name:               JavaScript-V8
-version:            0.02
-abstract:           Perl interface to the V8
+version:            0.03
+abstract:           Perl interface to the V8 JavaScript engine
 author:
     - Pawel Murias <pawelmurias@gmail.org>
 license:            unknown
@@ -11,12 +11,14 @@ configure_requires:
 build_requires:
     ExtUtils::MakeMaker:  0
 requires:
-    ExtUtils::XSpp:  0.01
+    ExtUtils::XSpp:  0.11
+resources:
+    repository:  http://github.com/dgl/javascript-v8
 no_index:
     directory:
         - t
         - inc
-generated_by:       ExtUtils::MakeMaker version 6.50
+generated_by:       ExtUtils::MakeMaker version 6.56
 meta-spec:
     url:      http://module-build.sourceforge.net/META-spec-v1.4.html
     version:  1.4
