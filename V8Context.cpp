@@ -27,13 +27,9 @@ static SV *_convert_v8value_to_sv(Handle<Value> value)
         AV *av = newAV();
         for (int i = 0; i < arrayVal->Length(); i++) {
             Handle<Value> elementVal = arrayVal->Get( v8::Integer::New( i ) );
-            if ( elementVal->IsArray() || elementVal->IsObject() ) {
-                av_push( av, newRV_noinc( _convert_v8value_to_sv( elementVal ) ) );
-            } else {
-                av_push( av, _convert_v8value_to_sv( elementVal ) );
-            }
+            av_push( av, _convert_v8value_to_sv( elementVal ) );
         }
-        return (SV *) av;
+        return newRV_noinc((SV *) av);
     } else if (value->IsObject()) {
         Handle<Object> objectVal = Handle<Object>::Cast( value );
         HV *hv = newHV();
@@ -44,22 +40,26 @@ static SV *_convert_v8value_to_sv(Handle<Value> value)
             String::Utf8Value propertyNameUTF8( propertyName );
 
             Local<Value> propertyValue = objectVal->Get( propertyName );
-            if ( propertyValue->IsArray() || propertyValue->IsObject() ) {
-                hv_store(hv, *propertyNameUTF8, 0 - propertyNameUTF8.length(), newRV_noinc(_convert_v8value_to_sv( propertyValue ) ), 0 );
-            } else {
-                hv_store(hv, *propertyNameUTF8, 0 - propertyNameUTF8.length(), _convert_v8value_to_sv( propertyValue ), 0 );
-            }
+            hv_store(hv, *propertyNameUTF8, 0 - propertyNameUTF8.length(), _convert_v8value_to_sv( propertyValue ), 0 );
         }
-        return (SV *) hv;
+        return newRV_noinc((SV*)hv);
     } else {
         croak("Can not convert js value to a perl one");
         return &PL_sv_undef;
     }
 }
 static Handle<Value>
-_convert_sv_to_v8value(SV *sv)
+_convert_sv_to_v8value_unscoped(SV *sv)
 {
-    HandleScope scope;
+    int keycount;
+    HV *hash;
+    AV *list;
+    SV *sv_val, *sv_key;
+    HE *hash_entry;
+    I32 keylen;
+    Handle<Object> object;
+    Handle<Array> array;
+    Handle<Value> ret;
 
     if (0) ;
     else if (SvIOK_UV(sv))
@@ -70,8 +70,43 @@ _convert_sv_to_v8value(SV *sv)
         return Number::New(SvNV(sv));
     else if (SvPOK(sv))
         return String::New(SvPV_nolen(sv));
+    else if (SvROK(sv)) {
+        switch(SvTYPE(SvRV(sv))) {
+            case SVt_PVHV:
+                object = Object::New();
+                hash = (HV *)SvRV(sv);
+                keycount = hv_iterinit(hash);
+                printf("%d items in return\n",keycount);
+                while(keycount-- != 0) {
+                    hash_entry = hv_iternext(hash);
+                    sv_key = hv_iterkeysv(hash_entry);
+                    sv_val = hv_iterval(hash, hash_entry);
+                    object->Set(_convert_sv_to_v8value_unscoped(sv_key), _convert_sv_to_v8value_unscoped(sv_val));
+                }
+                return object;
+            case SVt_PVAV:
+                array = Array::New();
+                list = (AV *)SvRV(sv);
+                for(keycount = 0; keycount <= av_len(list); keycount++) {
+                    sv_val = *av_fetch(list, keycount, NULL);
+                    printf("=>>> %s\n", SvPV_nolen(sv_val));
+                    array->Set(v8::Number::New(keycount), _convert_sv_to_v8value_unscoped(sv_val));
+                }
+                return array;
+            case SVt_IV:
+            case SVt_NV:
+            case SVt_PV:
+                return _convert_sv_to_v8value_unscoped((SV*)SvRV(sv));
+        }
+    }
 
     return Undefined();
+}
+static Handle<Value>
+_convert_sv_to_v8value(SV *sv)
+{
+    HandleScope scope;
+    return _convert_sv_to_v8value_unscoped(sv);
 }
 
 static Handle<Value>
@@ -89,7 +124,6 @@ _perl_method(const Arguments &args)
         /* TODO think about refcounts */
         XPUSHs(_convert_v8value_to_sv(args[i]));
     }
-
 
     PUTBACK;
 
@@ -118,7 +152,6 @@ V8Context::bind_function(const char *name,SV* code)
 
     Context::Scope context_scope(context);
 
-
     /*we will decrement the refcnt in the destructor*/
     SvREFCNT_inc(code);
     used.push_back(code);
@@ -129,6 +162,7 @@ V8Context::bind_function(const char *name,SV* code)
                               External::Wrap((void *) code))->GetFunction()
     );
 }
+
 SV* V8Context::eval(const char* source) {
     HandleScope handle_scope;
     TryCatch try_catch;
