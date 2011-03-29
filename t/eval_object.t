@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-use Test::More tests => 10;
+use Test::More tests => 11 + 2*1000;
 use JavaScript::V8;
 use strict;
 use warnings;
@@ -37,22 +37,25 @@ my $context = JavaScript::V8::Context->new();
 };
 
 {
-    my %expected = ( "\x{1234}" => { bar => { boo => 'far' } } );
-    is_deeply($context->eval('x={"\u1234":{bar:{boo:"far"}}}'), \%expected);
+    my %expected = ( "\x{1234}" => { bar => { boo => "far\x{0}" } } );
+    is_deeply($context->eval(qq[x={"\x{1234}":{bar:{boo:"far\x{0}"}}}]), \%expected);
+    is_deeply($context->eval('x={"\u1234":{bar:{boo:"far\u0000"}}}'), \%expected);
     is_deeply($context->eval('x'), \%expected);
 };
 
 {
-    my %expected = ( "\x{a3}" => { bar => { boo => 'far' } } );
-    is_deeply($context->eval('x={"\u00a3":{bar:{boo:"far"}}}'), \%expected);die $@ if $@;
+    my %expected = ( "\x{a3}" => { bar => { boo => "far\x{a3}" } } );
+    is_deeply($context->eval('x={"\u00a3":{bar:{boo:"far\u00a3"}}}'), \%expected);die $@ if $@;
 };
 
-{
-    local $TODO = "Function references";
-    my $code = $context->eval('function x() { return 2+2 }; x');
-    isa_ok $code, "CODE";
-    #is $code->(), 4;
-};
+for(1 .. 1000) {
+  my $code = $context->eval('function x() { return 2+2 }; x');
+  isa_ok $code, "CODE";
+  is $code->(), 4, 'returns expected value';
+}
+
+my $errcv = $context->eval('function err() { throw new Error("fail") }; err');
+eval { $errcv->() };
+like $@, qr/fail/, 'got proper exception';
 
 done_testing;
-

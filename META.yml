@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               JavaScript-V8
-version:            0.05
+version:            0.06
 abstract:           Perl interface to the V8 JavaScript engine
 author:
     - Pawel Murias <pawelmurias@gmail.org>
@@ -18,7 +18,7 @@ no_index:
     directory:
         - t
         - inc
-generated_by:       ExtUtils::MakeMaker version 6.57_05
+generated_by:       ExtUtils::MakeMaker version 6.56
 meta-spec:
     url:      http://module-build.sourceforge.net/META-spec-v1.4.html
     version:  1.4

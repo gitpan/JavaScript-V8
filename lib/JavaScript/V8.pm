@@ -2,8 +2,9 @@ package JavaScript::V8;
 use strict;
 use warnings;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
+use JavaScript::V8::Context;
 require XSLoader;
 XSLoader::load('JavaScript::V8', $VERSION);
 
@@ -100,6 +101,7 @@ The source code lives at L<http://github.com/dgl/javascript-v8>.
 
   Pawel Murias <pawelmurias at gmail dot com>
   David Leadbeater <dgl@dgl.cx>
+  Paul Driver <frodwith at gmail dot com>
 
 =head1 COPYRIGHT AND LICENSE
 

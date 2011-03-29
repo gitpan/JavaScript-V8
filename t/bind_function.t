@@ -1,7 +1,6 @@
 #!/usr/bin/perl
-use Test::More;
+use Test::More tests => 7;
 use JavaScript::V8;
-use utf8;
 use strict;
 use warnings;
 
@@ -18,17 +17,24 @@ $context->bind_function(bar => sub {
     $arg = $_[0];
 });
 
-$context->eval("foo()");
+my $retval = $context->eval("foo()");
 ok($called_foo,'calling p5 function from js');
+is($retval, 'arg', 'return value');
 $context->eval("bar(foo())");
-is $arg,'arg','passing arguments and return values';
+is $arg,'arg','passing arguments';
 
 my $expected = {a=>[1,"2",3], b=>"coucou"};
 $context->bind_function(foo2 => sub {
     return $expected;
 });
-is_deeply($context->eval("foo2()"), $expected);
+is_deeply($context->eval("foo2()"), $expected, 'deep');
 
+# ---- Roundtripping
+$context->bind(x => sub { 2*shift });
+is $context->eval("x")->(3), 6;
 
-done_testing;
+$context->bind(y => $context->eval("x"));
+is $context->eval("y")->(3), 6, "Roundtrip";
 
+$context->bind(z => { z => $context->eval("y") });
+is $context->eval("z")->{z}->(3), 6, "Roundtrip via object";

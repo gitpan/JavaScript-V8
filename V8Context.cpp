@@ -5,173 +5,177 @@
 #include "XSUB.h"
 #include "ppport.h"
 #undef New
+
 using namespace v8;
-static SV *_convert_v8value_to_sv(Handle<Value> value)
-{
-    if (value->IsUndefined()) {
-        return &PL_sv_undef;
-    } else if (value->IsNull()) {
-        return &PL_sv_undef;
-    } else if (value->IsInt32()) {
-        return newSViv(value->Int32Value());
-    } else if (value->IsBoolean()) {
-        return newSVuv(value->Uint32Value());
-    } else if (value->IsNumber()) {
-        return newSVnv(value->NumberValue());
-    } else if (value->IsString()) {
-        SV *sv = newSVpv(*(String::Utf8Value(value)), 0);
-        sv_utf8_decode(sv);
-        return sv;
-    } else if (value->IsArray()) {
-        Handle<Array> arrayVal = Handle<Array>::Cast( value );
-        AV *av = newAV();
-        for (int i = 0; i < arrayVal->Length(); i++) {
-            Handle<Value> elementVal = arrayVal->Get( v8::Integer::New( i ) );
-            av_push( av, _convert_v8value_to_sv( elementVal ) );
-        }
-        return newRV_noinc((SV *) av);
-    } else if (value->IsObject()) {
-        Handle<Object> objectVal = Handle<Object>::Cast( value );
-        HV *hv = newHV();
-        Local<Array> properties = objectVal->GetPropertyNames();
-        for (int i = 0; i < properties->Length(); i++) {
-            Local<Integer> propertyIndex = Integer::New( i );
-            Local<String> propertyName = Local<String>::Cast( properties->Get( propertyIndex ) );
-            String::Utf8Value propertyNameUTF8( propertyName );
 
-            Local<Value> propertyValue = objectVal->Get( propertyName );
-            hv_store(hv, *propertyNameUTF8, 0 - propertyNameUTF8.length(), _convert_v8value_to_sv( propertyValue ), 0 );
-        }
-        return newRV_noinc((SV*)hv);
-    } else {
-        croak("Can not convert js value to a perl one");
-        return &PL_sv_undef;
-    }
-}
-static Handle<Value>
-_convert_sv_to_v8value_unscoped(SV *sv)
-{
-    int keycount;
-    HV *hash;
-    AV *list;
-    SV *sv_val, *sv_key;
-    HE *hash_entry;
-    I32 keylen;
-    Handle<Object> object;
-    Handle<Array> array;
-    Handle<Value> ret;
-
-    if (0) ;
-    else if (SvIOK_UV(sv))
-        return Uint32::New(SvUV(sv));
-    else if (SvIOK(sv))
-        return Integer::New(SvIV(sv));
-    else if (SvNOK(sv))
-        return Number::New(SvNV(sv));
-    else if (SvPOK(sv))
-        return String::New(SvPV_nolen(sv));
-    else if (SvROK(sv)) {
-        switch(SvTYPE(SvRV(sv))) {
-            case SVt_PVHV:
-                object = Object::New();
-                hash = (HV *)SvRV(sv);
-                keycount = hv_iterinit(hash);
-                printf("%d items in return\n",keycount);
-                while(keycount-- != 0) {
-                    hash_entry = hv_iternext(hash);
-                    sv_key = hv_iterkeysv(hash_entry);
-                    sv_val = hv_iterval(hash, hash_entry);
-                    object->Set(_convert_sv_to_v8value_unscoped(sv_key), _convert_sv_to_v8value_unscoped(sv_val));
-                }
-                return object;
-            case SVt_PVAV:
-                array = Array::New();
-                list = (AV *)SvRV(sv);
-                for(keycount = 0; keycount <= av_len(list); keycount++) {
-                    sv_val = *av_fetch(list, keycount, NULL);
-                    printf("=>>> %s\n", SvPV_nolen(sv_val));
-                    array->Set(v8::Number::New(keycount), _convert_sv_to_v8value_unscoped(sv_val));
-                }
-                return array;
-            case SVt_IV:
-            case SVt_NV:
-            case SVt_PV:
-                return _convert_sv_to_v8value_unscoped((SV*)SvRV(sv));
-        }
-    }
-
-    return Undefined();
-}
-static Handle<Value>
-_convert_sv_to_v8value(SV *sv)
-{
-    HandleScope scope;
-    return _convert_sv_to_v8value_unscoped(sv);
-}
-
-static Handle<Value>
-_perl_method(const Arguments &args)
-{
+// Internally-used wrapper around coderefs
+static IV
+calculate_size(SV *sv) {
+    return 1000;
+    /*
+     * There are horrible bugs in the current Devel::Size, so we can't do this
+     * accurately. But if there weren't, this is how we'd do it!
     dSP;
-    int count;
-    Handle<Value> result = Undefined();
-
     ENTER;
     SAVETMPS;
+
     PUSHMARK(SP);
-
-    for (int i = 0; i < args.Length(); i ++) {
-        /* TODO think about refcounts */
-        XPUSHs(_convert_v8value_to_sv(args[i]));
-    }
-
+    XPUSHs(sv);
     PUTBACK;
-
-    SV *code = (SV *) External::Unwrap(args.Data());
-    count = call_sv(code, G_SCALAR);
+    int returned = call_pv("Devel::Size::total_size", G_SCALAR);
+    if (returned != 1) {
+        warn("Error calculating sv size");
+        return 0;
+    }
 
     SPAGAIN;
-
-    if (count >= 1) {
-        result = _convert_sv_to_v8value(POPs);
-    }
-
+    IV size    = SvIV(POPs);
     PUTBACK;
     FREETMPS;
     LEAVE;
-    return result;
+
+    return size;
+    */
 }
 
+namespace
+{
+    class CVInfo
+    {
+        SV*        ref;
+        IV         bytes;
+        V8Context* context;
 
+    public:
+        CVInfo(CV *cv, V8Context *ctx)
+            : context(ctx)
+            , ref(newRV_inc((SV*)cv))
+            , bytes(calculate_size(ref) + sizeof(CVInfo))
+        {
+            V8::AdjustAmountOfExternalAllocatedMemory(bytes);
+        };
+
+        ~CVInfo() {
+            SvREFCNT_dec(ref);
+            V8::AdjustAmountOfExternalAllocatedMemory(-bytes);
+        };
+
+        static void destroy(Persistent<Value> o, void *p) {
+            CVInfo *code = static_cast<CVInfo*>(p);
+            delete code;
+        };
+
+        static Handle<Value> v8invoke(const Arguments& args) {
+            CVInfo *code = static_cast<CVInfo*>(External::Unwrap(args.Data()));
+            return code->invoke(args);
+        }
+
+        Handle<Value> invoke(const Arguments& args);
+    };
+
+    Handle<Value>
+    CVInfo::invoke(const Arguments& args)
+    {
+        int len = args.Length();
+
+        dSP;
+        ENTER;
+        SAVETMPS;
+
+        PUSHMARK(SP);
+        for (int i = 0; i < len; i++) {
+            SV *arg = context->v82sv(args[i]);
+            mXPUSHs(arg);
+        }
+        PUTBACK;
+        int count = call_sv(ref, G_SCALAR);
+        SPAGAIN;
+
+        Handle<Value> v = context->sv2v8(POPs);
+
+        PUTBACK;
+        FREETMPS;
+        LEAVE;
+
+        return v;
+    }
+
+    class ClosureData
+    {
+    public:
+        V8Context *context;
+        Persistent<Function> function;
+
+        ClosureData(CV* code, V8Context *ctx, Handle<Function> fn)
+            : context(ctx)
+            , function(Persistent<Function>::New(fn))
+        {
+            SV *ptr = newSViv((IV) this);
+            sv_magicext((SV*) code, ptr, PERL_MAGIC_ext,
+                &ClosureData::vtable, "v8closure", 0);
+            SvREFCNT_dec(ptr); // refcnt is incremented by sv_magicext
+            CvXSUBANY(code).any_ptr = static_cast<void*>(this);
+        };
+        ~ClosureData() {
+            function.Dispose();
+        };
+        static ClosureData *for_cv(CV *code) {
+            return static_cast<ClosureData*>(CvXSUBANY(code).any_ptr);
+        }
+
+    private:
+        static MGVTBL vtable;
+        static int svt_free(pTHX_ SV*, MAGIC*);
+    };
+
+    MGVTBL ClosureData::vtable = {
+        0,
+        0,
+        0,
+        0,
+        ClosureData::svt_free,
+        0,
+        0,
+        0
+    };
+
+    int ClosureData::svt_free(pTHX_ SV* sv, MAGIC* mg) {
+        ClosureData *data = ClosureData::for_cv((CV *)sv);
+        delete data;
+        return 0;
+    };
+};
+
+// V8Context class starts here
+
+V8Context::V8Context() {
+    context = Context::New();
+}
+
+V8Context::~V8Context() {
+    context.Dispose();
+    while(!V8::IdleNotification()); // force garbage collection
+}
 
 void
-V8Context::bind_function(const char *name,SV* code)
-{
+V8Context::bind(const char *name, SV *thing) {
     HandleScope scope;
-    TryCatch try_catch;
-
     Context::Scope context_scope(context);
 
-    /*we will decrement the refcnt in the destructor*/
-    SvREFCNT_inc(code);
-    used.push_back(code);
-
-    context->Global()->Set(
-        String::New(name),
-        FunctionTemplate::New(_perl_method,
-                              External::Wrap((void *) code))->GetFunction()
-    );
+    context->Global()->Set(String::New(name), sv2v8(thing));
 }
 
-SV* V8Context::eval(const char* source) {
+SV*
+V8Context::eval(SV* source) {
     HandleScope handle_scope;
     TryCatch try_catch;
     Context::Scope context_scope(context);
-    Handle<Script> script = Script::Compile(String::New(source));
+    Handle<String> source_str(sv2v8str(source));
+    Handle<Script> script = Script::Compile(source_str);
 
     if (try_catch.HasCaught()) {
         Handle<Value> exception = try_catch.Exception();
-        String::AsciiValue exception_str(exception);
+        String::Utf8Value exception_str(exception);
         sv_setpvn(ERRSV, *exception_str, exception_str.length());
         return &PL_sv_undef;
     } else {
@@ -184,14 +188,205 @@ SV* V8Context::eval(const char* source) {
             return &PL_sv_undef;
         } else {
             sv_setsv(ERRSV,&PL_sv_undef);
-            return _convert_v8value_to_sv(val);
+            return v82sv(val);
         }
     }
 }
 
-V8Context::~V8Context() {
-      for (int i=0;i<used.size();i++) {
-          SvREFCNT_dec(used[i]);
-      }
-      context.Dispose();
+Handle<Value>
+V8Context::sv2v8(SV *sv) {
+    if (SvROK(sv))
+        return rv2v8(sv);
+    if (SvPOK(sv)) {
+        // Upgrade string to UTF-8 if needed
+        char *utf8 = SvPVutf8_nolen(sv);
+        return String::New(utf8, SvCUR(sv));
+    }
+    if (SvIOK_UV(sv))
+        return Uint32::New(SvUV(sv));
+    if (SvIOK(sv))
+        return Integer::New(SvIV(sv));
+    if (SvNOK(sv))
+        return Number::New(SvNV(sv));
+
+    warn("Unknown sv type in sv2v8");
+    return Undefined();
+}
+
+Handle<String> V8Context::sv2v8str(SV* sv)
+{
+    // Upgrade string to UTF-8 if needed
+    char *utf8 = SvPVutf8_nolen(sv);
+    return String::New(utf8, SvCUR(sv));
+}
+
+SV *
+V8Context::v82sv(Handle<Value> value) {
+    if (value->IsUndefined())
+        return &PL_sv_undef;
+
+    if (value->IsNull())
+        return &PL_sv_undef;
+
+    if (value->IsInt32())
+        return newSViv(value->Int32Value());
+
+    if (value->IsBoolean())
+        return newSVuv(value->Uint32Value());
+
+    if (value->IsNumber())
+        return newSVnv(value->NumberValue());
+
+    if (value->IsString()) {
+        String::Utf8Value str(value);
+        SV *sv = newSVpvn(*str, str.length());
+        sv_utf8_decode(sv);
+        return sv;
+    }
+
+    if (value->IsArray()) {
+        Handle<Array> array = Handle<Array>::Cast(value);
+        return array2sv(array);
+    }
+
+    if (value->IsFunction()) {
+        Handle<Function> fn = Handle<Function>::Cast(value);
+        return function2sv(fn);
+    }
+
+    if (value->IsObject()) {
+        Handle<Object> object = Handle<Object>::Cast(value);
+        return object2sv(object);
+    }
+
+    warn("Unknown v8 value in v82sv");
+    return &PL_sv_undef;
+}
+
+Handle<Value>
+V8Context::rv2v8(SV *sv) {
+    SV *ref  = SvRV(sv);
+    svtype t = SvTYPE(ref);
+    if (t == SVt_PVAV) {
+        return av2array((AV*)ref);
+    }
+    if (t == SVt_PVHV) {
+        return hv2object((HV*)ref);
+    }
+    if (t == SVt_PVCV) {
+        return cv2function((CV*)ref);
+    }
+    warn("Unknown reference type in sv2v8()");
+    return Undefined();
+}
+
+Handle<Array>
+V8Context::av2array(AV *av) {
+    I32 i, len = av_len(av) + 1;
+    Handle<Array> array = Array::New(len);
+    for (i = 0; i < len; i++) {
+        array->Set(i, sv2v8(*av_fetch(av, i, 0)));
+    }
+    return array;
+}
+
+Handle<Object>
+V8Context::hv2object(HV *hv) {
+    I32 len;
+    char *key;
+    SV *val;
+
+    hv_iterinit(hv);
+    Handle<Object> object = Object::New();
+    while (val = hv_iternextsv(hv, &key, &len)) {
+        object->Set(String::New(key, len), sv2v8(val));
+    }
+    return object;
+}
+
+Handle<Function>
+V8Context::cv2function(CV *cv) {
+    CVInfo                 *code = new CVInfo(cv, this);
+    void                   *ptr  = static_cast<void*>(code);
+    Local<External>         wrap = External::New(ptr);
+    Persistent<External>    weak = Persistent<External>::New(wrap);
+    Local<FunctionTemplate> tmpl = FunctionTemplate::New(CVInfo::v8invoke, weak);
+    Handle<Function>        fn   = tmpl->GetFunction();
+    weak.MakeWeak(ptr, CVInfo::destroy);
+
+    return fn;
+}
+
+SV*
+V8Context::array2sv(Handle<Array> array) {
+    AV *av = newAV();
+    for (int i = 0; i < array->Length(); i++) {
+        Handle<Value> elementVal = array->Get( Integer::New( i ) );
+        av_push( av, v82sv( elementVal ) );
+    }
+    return newRV_noinc((SV *) av);
+}
+
+SV *
+V8Context::object2sv(Handle<Object> obj) {
+    HV *hv = newHV();
+    Local<Array> properties = obj->GetPropertyNames();
+    for (int i = 0; i < properties->Length(); i++) {
+        Local<Integer> propertyIndex = Integer::New( i );
+        Local<String> propertyName = Local<String>::Cast( properties->Get( propertyIndex ) );
+        String::Utf8Value propertyNameUTF8( propertyName );
+
+        Local<Value> propertyValue = obj->Get( propertyName );
+        hv_store(hv, *propertyNameUTF8, 0 - propertyNameUTF8.length(), v82sv( propertyValue ), 0 );
+    }
+    return newRV_noinc((SV*)hv);
+}
+
+XS(v8closure) {
+#ifdef dVAR
+    dVAR;
+#endif
+    dXSARGS;
+
+    bool die = false;
+
+    {
+        /* We have to do all this inside a block so that all the proper
+         * destuctors are called if we need to croak. If we just croak in the
+         * middle of the block, v8 will segfault at program exit. */
+        TryCatch        try_catch;
+        HandleScope     scope;
+        ClosureData    *data = ClosureData::for_cv(cv);
+        V8Context      *self = data->context;
+        Handle<Context> ctx  = self->context;
+        Context::Scope  context_scope(ctx);
+        Handle<Value>   argv[items];
+
+        for (I32 i = 0; i < items; i++) {
+            argv[i] = self->sv2v8(ST(i));
+        }
+
+        Handle<Value> result = data->function->Call(ctx->Global(), items, argv);
+        if (try_catch.HasCaught()) {
+            Local<Value> e = try_catch.Exception();
+            String::Utf8Value str(e);
+            sv_setpvn(ERRSV, *str, str.length());
+            die = true;
+        }
+        else {
+            ST(0) = sv_2mortal(self->v82sv(result));
+        }
+    }
+
+    if (die)
+        croak(NULL);
+
+    XSRETURN(1);
+}
+
+SV*
+V8Context::function2sv(Handle<Function> fn) {
+    CV          *code = newXS(NULL, v8closure, __FILE__);
+    ClosureData *data = new ClosureData(code, this, fn);
+    return newRV_noinc((SV*)code);
 }

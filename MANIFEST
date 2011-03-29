@@ -12,6 +12,7 @@ README
 t/01load.t
 t/basic.t
 t/bind_function.t
+t/bind_object.t
 t/error.t
 t/eval_array.t
 t/eval_object.t
