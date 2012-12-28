@@ -2,7 +2,7 @@ package JavaScript::V8;
 use strict;
 use warnings;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 use JavaScript::V8::Context;
 require XSLoader;
@@ -77,11 +77,28 @@ On Ubuntu 10.04 (and possibly Debian), the library and header files can be insta
 
 Similar packages may be available for other distributions (adjust the package names accordingly).
 
-=head1 REPOSITORY
-
-The source code lives at L<http://github.com/dgl/javascript-v8>.
-
 =head1 SEE ALSO
+
+=head2 Further documentation
+
+=over
+
+=item * L<JavaScript::V8::Context>
+
+Details on the context object and the mapping between JavaScript and Perl
+types.
+
+=back
+
+=head2 Extension modules
+
+=over
+
+=item * L<JavaScript::V8x::TestMoreish>
+
+=back
+
+=head2 Other JavaScript bindings for Perl
 
 =over
 
@@ -91,22 +108,26 @@ The source code lives at L<http://github.com/dgl/javascript-v8>.
 
 =item * L<JavaScript::SpiderMonkey>
 
-=item * L<JavaScript::V8x::TestMoreish>
-
 =item * L<JE>
 
 =back
+
+=head1 REPOSITORY
+
+The source code lives at L<http://github.com/dgl/javascript-v8>.
 
 =head1 AUTHORS
 
   Pawel Murias <pawelmurias at gmail dot com>
   David Leadbeater <dgl@dgl.cx>
   Paul Driver <frodwith at gmail dot com>
+  Igor Zaytsev <igor.zaytsev@gmail.com>
 
 =head1 COPYRIGHT AND LICENSE
 
   Copyright (c) 2009-2010 Paweł Murias
   Copyright (c) 2011 David Leadbeater
+  Copyright (c) 2011 Igor Zaytsev
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.
